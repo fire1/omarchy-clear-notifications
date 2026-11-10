@@ -1,0 +1,20 @@
+{
+  "title": "Notifications",
+  "tooltip.open": {
+    "one": "%1 notification — open menu",
+    "other": "%1 notifications — open menu"
+  },
+  "tooltip.empty": "Notifications",
+  "tooltip.silenced": "Notifications silenced",
+  "status.count": {
+    "one": "%1 active notification",
+    "other": "%1 active notifications"
+  },
+  "status.empty": "Nothing active right now",
+  "action.clearAll": "Clear all",
+  "action.dismissOne": "Dismiss newest",
+  "action.history": "Show history",
+  "action.invokeLast": "Invoke last",
+  "action.silence": "Silence notifications",
+  "action.silenceHint": "Hide new popups until you turn this off"
+}
