@@ -4,6 +4,8 @@ A bar widget for [Omarchy](https://omarchy.org) that puts a notification bell
 between your other status icons. Click it for a dropdown to clear, dismiss,
 replay history, invoke the last toast, or silence popups.
 
+![Notifications menu](preview.png)
+
 ## Install
 
 ```bash
@@ -32,11 +34,29 @@ Menu actions:
 - **Invoke last** — run the default action on the newest toast
 - **Silence notifications** — hide new popups until turned off
 
+## Options
+
+Open the widget settings (or use `omarchy bar set`) for:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `replaceStockSilence` | on | Addon: hide Omarchy's DND indicator and route **Toggle → Silence Notifications** to this menu |
+| `showSilenceToggle` | on | Show the Silence switch inside the dropdown |
+
+```bash
+omarchy bar set fire1.clear-notifications replaceStockSilence true
+omarchy bar set fire1.clear-notifications showSilenceToggle true
+```
+
+Turning `replaceStockSilence` off restores the stock Silence indicator and menu rows.
+
 ## Remove
 
 ```bash
 omarchy plugin remove fire1.clear-notifications --yes
 ```
+
+Removal turns the stock Silence controls back on when the addon was enabled.
 
 ## Requirements
 

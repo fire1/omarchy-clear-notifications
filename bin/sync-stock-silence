@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Apply or undo replacing Omarchy's stock Silence / DND controls with this plugin.
+# Usage: sync-stock-silence on|off
+set -euo pipefail
+
+MODE="${1:-}"
+PLUGIN_ID="fire1.clear-notifications"
+DEFAULT_ITEMS=(PasswordlessSudo ScreenRecording RemoteSession Reminder NightLight Dnd StayAwake)
+MENU_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/extensions/omarchy-menu.jsonc"
+BEGIN_MARK="// fire1.clear-notifications:begin"
+END_MARK="// fire1.clear-notifications:end"
+
+[[ $MODE == on || $MODE == off ]] || {
+  echo "usage: $0 on|off" >&2
+  exit 2
+}
+
+current_items() {
+  omarchy-bar get omarchy.indicators items 2>/dev/null || true
+}
+
+set_items() {
+  local json="$1"
+  omarchy-bar set omarchy.indicators items "$json" --json >/dev/null
+}
+
+sync_indicators() {
+  local raw items json
+  raw="$(current_items)"
+  if [[ -z $raw || $raw == null ]]; then
+    items=("${DEFAULT_ITEMS[@]}")
+  else
+    mapfile -t items < <(jq -r '.[]?' <<<"$raw" 2>/dev/null || true)
+    if ((${#items[@]} == 0)); then
+      items=("${DEFAULT_ITEMS[@]}")
+    fi
+  fi
+
+  local out=()
+  local id
+  for id in "${items[@]}"; do
+    [[ $id == Dnd ]] && continue
+    out+=("$id")
+  done
+
+  if [[ $MODE == off ]]; then
+    local inserted=0 rebuilt=()
+    for id in "${out[@]}"; do
+      if [[ $id == StayAwake && $inserted -eq 0 ]]; then
+        rebuilt+=(Dnd)
+        inserted=1
+      fi
+      rebuilt+=("$id")
+    done
+    if [[ $inserted -eq 0 ]]; then
+      rebuilt+=(Dnd)
+    fi
+    out=("${rebuilt[@]}")
+  fi
+
+  json="$(printf '%s\n' "${out[@]}" | jq -Rsc 'split("\n")|map(select(length>0))')"
+  set_items "$json"
+}
+
+strip_managed_menu() {
+  [[ -f $MENU_FILE ]] || return 0
+  local tmp
+  tmp="$(mktemp)"
+  awk -v begin="$BEGIN_MARK" -v end="$END_MARK" '
+    $0 ~ begin { skip=1; next }
+    $0 ~ end { skip=0; next }
+    !skip { print }
+  ' "$MENU_FILE" >"$tmp"
+  mv "$tmp" "$MENU_FILE"
+}
+
+write_managed_menu() {
+  mkdir -p "$(dirname "$MENU_FILE")"
+  if [[ ! -f $MENU_FILE ]]; then
+    printf '{\n}\n' >"$MENU_FILE"
+  fi
+  strip_managed_menu
+
+  local tmp
+  tmp="$(mktemp)"
+  # Insert managed overrides before the final closing brace.
+  awk -v begin="$BEGIN_MARK" -v end="$END_MARK" -v plugin="$PLUGIN_ID" '
+    BEGIN { done=0 }
+    /^[[:space:]]*}[[:space:]]*$/ && !done {
+      print "  " begin
+      print "  \"trigger.toggle.notifications-on\": {\"icon\":\"󰂛\",\"label\":\"Notifications\",\"description\":\"Open the notifications menu\",\"action\":\"omarchy-shell shell toggle " plugin "\"},"
+      print "  \"trigger.toggle.notifications-off\": {\"icon\":\"󰂚\",\"label\":\"Notifications\",\"description\":\"Open the notifications menu\",\"action\":\"omarchy-shell shell toggle " plugin "\"},"
+      print "  " end
+      done=1
+    }
+    { print }
+  ' "$MENU_FILE" >"$tmp"
+  mv "$tmp" "$MENU_FILE"
+}
+
+sync_menu() {
+  if [[ $MODE == on ]]; then
+    write_managed_menu
+  else
+    strip_managed_menu
+  fi
+}
+
+sync_indicators
+sync_menu
+echo "ok"

@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -14,9 +15,23 @@ Panel {
     : 0
   readonly property bool hasToasts: toastCount > 0
   readonly property bool dnd: notificationService ? notificationService.doNotDisturb === true : false
+  readonly property bool replaceStockSilence: truthySetting("replaceStockSilence", true)
+  readonly property bool showSilenceToggle: truthySetting("showSilenceToggle", true)
+
+  function truthySetting(name, fallback) {
+    var value = setting(name, fallback)
+    if (value === true || value === 1) return true
+    if (value === false || value === 0 || value === null || value === undefined) return false
+    var text = String(value).trim().toLowerCase()
+    if (text === "true" || text === "1" || text === "on" || text === "yes") return true
+    if (text === "false" || text === "0" || text === "off" || text === "no") return false
+    return !!fallback
+  }
 
   property bool cursorActive: false
   property int cursorIndex: 0
+  property bool settingsSeen: false
+  property string lastSilenceMode: ""
 
   readonly property var actions: [
     { id: "clearAll", icon: "󰵙", labelKey: "action.clearAll", needsToasts: true },
@@ -25,12 +40,29 @@ Panel {
     { id: "invokeLast", icon: "󰳾", labelKey: "action.invokeLast", needsToasts: true }
   ]
 
+  readonly property int menuItemCount: actions.length + (showSilenceToggle ? 1 : 0)
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
   Commons.Translations {
     id: strings
     directory: Qt.resolvedUrl("i18n")
+  }
+
+  function syncScript() {
+    var url = Qt.resolvedUrl("bin/sync-stock-silence").toString()
+    if (url.indexOf("file://") === 0) url = url.substring(7)
+    try { url = decodeURIComponent(url) } catch (e) {}
+    return url
+  }
+
+  function syncStockSilence() {
+    if (!settingsSeen) return
+    var mode = replaceStockSilence ? "on" : "off"
+    if (mode === lastSilenceMode) return
+    lastSilenceMode = mode
+    Quickshell.execDetached([syncScript(), mode])
   }
 
   function runAction(id) {
@@ -62,8 +94,8 @@ Panel {
 
   function moveCursor(dy) {
     cursorActive = true
-    // actions + DND toggle at the end
-    var max = actions.length
+    var max = menuItemCount - 1
+    if (max < 0) return
     cursorIndex = Math.max(0, Math.min(max, cursorIndex + dy))
   }
 
@@ -72,10 +104,31 @@ Panel {
       cursorActive = true
       return
     }
-    if (cursorIndex >= actions.length)
+    if (showSilenceToggle && cursorIndex >= actions.length)
       toggleDnd()
     else
       runAction(actions[cursorIndex].id)
+  }
+
+  onSettingsChanged: {
+    settingsSeen = true
+    syncStockSilence()
+  }
+
+  Component.onCompleted: {
+    // Settings may already be present before onSettingsChanged fires.
+    Qt.callLater(function() {
+      settingsSeen = true
+      syncStockSilence()
+    })
+  }
+
+  // Hot-reload and disable both destroy this item. Only restore stock
+  // Silence when the addon is on and the plugin is leaving the bar, which
+  // disable/remove do; a reload immediately re-applies `on` from onCompleted.
+  Component.onDestruction: {
+    if (replaceStockSilence)
+      Quickshell.execDetached([syncScript(), "off"])
   }
 
   onOpenedChanged: if (opened) {
@@ -189,6 +242,7 @@ Panel {
         }
 
         Toggle {
+          visible: root.showSilenceToggle
           width: parent.width
           label: strings.t("action.silence")
           description: strings.t("action.silenceHint")
