@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -9,10 +10,13 @@ Panel {
   moduleName: "fire1.clear-notifications"
   ipcTarget: "fire1.clear-notifications"
 
+  // Third-party bar plugins only get a narrow notifications proxy (DND). Toast
+  // count and dismiss APIs are not on that proxy, so count comes from the same
+  // live.json the daemon writes, and actions go through omarchy-shell IPC.
   readonly property var notificationService: bar?.shell?.firstPartyServiceFor("omarchy.notifications")
-  readonly property int toastCount: notificationService && notificationService.toasts
-    ? notificationService.toasts.count
-    : 0
+  readonly property string livePath: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state")
+    + "/omarchy/notifications/live.json"
+  property int toastCount: 0
   readonly property bool hasToasts: toastCount > 0
   readonly property bool dnd: notificationService ? notificationService.doNotDisturb === true : false
   readonly property bool replaceStockSilence: truthySetting("replaceStockSilence", true)
@@ -33,11 +37,13 @@ Panel {
   property bool settingsSeen: false
   property string lastSilenceMode: ""
 
+  // Keep clear/dismiss/invoke clickable even if the count watcher lags: IPC is
+  // cheap and returns none when the deck is empty.
   readonly property var actions: [
-    { id: "clearAll", icon: "󰵙", labelKey: "action.clearAll", needsToasts: true },
-    { id: "dismissOne", icon: "󰅙", labelKey: "action.dismissOne", needsToasts: true },
+    { id: "clearAll", icon: "󰵙", labelKey: "action.clearAll", needsToasts: false },
+    { id: "dismissOne", icon: "󰅙", labelKey: "action.dismissOne", needsToasts: false },
     { id: "history", icon: "󰋚", labelKey: "action.history", needsToasts: false },
-    { id: "invokeLast", icon: "󰳾", labelKey: "action.invokeLast", needsToasts: true }
+    { id: "invokeLast", icon: "󰳾", labelKey: "action.invokeLast", needsToasts: false }
   ]
 
   readonly property int menuItemCount: actions.length + (showSilenceToggle ? 1 : 0)
@@ -65,26 +71,38 @@ Panel {
     Quickshell.execDetached([syncScript(), mode])
   }
 
-  function runAction(id) {
-    if (id === "clearAll") {
-      if (notificationService && notificationService.clearAll)
-        notificationService.clearAll("dismissed", true)
-      else if (bar)
-        bar.run("omarchy-shell notifications dismissAll")
-    } else if (id === "dismissOne") {
-      if (notificationService && notificationService.dismissNewest)
-        notificationService.dismissNewest(true)
-      else if (bar)
-        bar.run("omarchy-shell notifications dismissOne")
-    } else if (id === "history") {
-      if (bar) bar.run("omarchy-shell notifications showHistory")
-    } else if (id === "invokeLast") {
-      if (notificationService && notificationService.actOnNewest)
-        notificationService.actOnNewest()
-      else if (bar)
-        bar.run("omarchy-shell notifications invokeLast")
+  function readLive(text) {
+    try {
+      var value = JSON.parse(String(text || "[]"))
+      toastCount = Array.isArray(value) ? value.length : 0
+    } catch (e) {
+      toastCount = 0
     }
+  }
+
+  function runShell(method) {
+    if (bar) bar.run("omarchy-shell notifications " + method)
+  }
+
+  function runAction(id) {
+    if (id === "clearAll")
+      runShell("dismissAll")
+    else if (id === "dismissOne")
+      runShell("dismissOne")
+    else if (id === "history")
+      runShell("showHistory")
+    else if (id === "invokeLast")
+      runShell("invokeLast")
     close()
+  }
+
+  FileView {
+    path: root.livePath
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.readLive(text())
+    onLoadFailed: root.readLive("[]")
+    onFileChanged: reload()
   }
 
   function toggleDnd() {
